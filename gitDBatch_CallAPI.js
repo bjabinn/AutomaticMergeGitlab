@@ -79,14 +79,6 @@ function all(urlRepo, mrsForBuild, projectElement){
           },
           checkoutBranch: mrsForBuild[0].target_branch
        }
-       var pullOption = {
-          fetchOpts: {
-               callbacks: {                    
-                    credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),               
-                    
-               }
-          } 
-       }
 
      
 
@@ -102,28 +94,46 @@ function all(urlRepo, mrsForBuild, projectElement){
                git.Repository.open(projectElement.name)
                .then(function(repo){
                     return repo.getCurrentBranch().then(function(ref) {
-                         console.log("<======== Estas en la Rama: " + ref.shorthand() + "===========>");
+                         console.log("<========= Estas en la Rama: " + ref.shorthand() + "===========>");
                 }).then(function(){
                     return repo.getHeadCommit()
                          .then(function(commit){
                               return repo.createBranch(mrsForBuild[0].source_branch, commit)
                          .then(function(){
-                              console.log("<========  Branch creado  =========>")})
+                              console.log("<=========  Branch creado  =========>")})
                          .catch(function(){
-                              console.log("<======== Branch Listo ========>") })
+                              console.log("<========= Branch Listo ========>") })
                           .then(function(){
                               repo.checkoutBranch(mrsForBuild[0].source_branch, {})
                          .then(function(){
-                                   console.log("<======== checkout realizado cambiando a la Rama: "+ mrsForBuild[0].source_branch+" ============>")})
+                                   console.log("<========= checkout realizado cambiando a la Rama: "+ mrsForBuild[0].source_branch+" ============>")})
+                         .catch(function(e){
+                              console.log("Error checkout "+e)})
                          .then(function(){
-                                   repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch, pullOption)
+                                      return repo.fetchAll({  callbacks: {                    
+                                        credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),               
+                                   }});
+                                 
+                         })                             
+                              // Now that we're finished fetching, go ahead and merge our local branch
+                              // with the new one
+                              .then(function() {
+                                return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch);
+                              }).then(function(){
+                                   console.log("<========= Pull realizado de la Rama auxiliar ============>");})
+                              .catch(function(e){console.log("Error al realizar el Pull "+e)}) 
                               .then(function(){
-                                    console.log("<======== Pull realizado de la Rama auxiliar ============>");})
-                              // .then(function(){
-                              //      repo.mergeBranches(mrsForBuild[0].target_branch, mrsForBuild[0].source_branch)
-                              // .then(function(){
-                              //      console.log("<============= Merge de la Rama Principal a la Rama auxiliar ============>")
-                              // })
+                                   return repo.fetchAll({callbacks: {                    
+                                     credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),                      
+                                }});
+                               })                         
+                              .then(function(){
+                                   var signature = git.Signature.now("Pedro Susín", "psusinor@everis.com");
+                                   repo.mergeBranches(mrsForBuild[0].target_branch, mrsForBuild[0].source_branch)})
+                              .then(function(){
+                                        console.log("<========= Merge de la Rama Principal a la Rama auxiliar realizado ============>")})
+                              .catch(function(e){console.log("Error al realizar el Merge "+e)})
+                              
                                    // .then(function(){
                                    //      return repo.getRemote("origin", projectElement.name)})
                                    // .then(function(remoteResult){
@@ -131,7 +141,7 @@ function all(urlRepo, mrsForBuild, projectElement){
                                    //      console.log("Push realizado")
                                    // })
                               //})
-                         })
+                         
                     })
                })
           })
@@ -223,7 +233,12 @@ function all(urlRepo, mrsForBuild, projectElement){
 //      })
 // }
 
-// get
+// // get
+// var fetchOpts = cloneOptions;
+// return repo.fetchAll(fetchOpts)
+// }).then(function(){
+//     return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch)
+
 request(optionsGetProjects, getProjects);
 
 
