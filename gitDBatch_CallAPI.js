@@ -1,6 +1,8 @@
 const request = require('request');
 const git = require('nodegit');
-const path = require('path');
+var fse = require("fs-extra");
+var oid, head, parent, repo, signature
+
 
 
 const gitRepositoryHost = '10.45.17.147';
@@ -69,175 +71,102 @@ function getMRForBuild(error, response, body) {
 }}
 
 function all(urlRepo, mrsForBuild, projectElement){
-       //Credencial y Rama Principal
        var cloneOptions = {
           fetchOpts: {
                callbacks: {                    
-                    credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),               
+                    credentials: () => git.Cred.userpassPlaintextNew("jbeltrma@everis.com", "va5Kuge,,,"),               
                     
                }
           },
           checkoutBranch: mrsForBuild[0].target_branch
        }
+   signature = git.Signature.now("jbeltran", "jbeltrma@everis.com")
 
-     
-
-//Clonación del repositorio con credenciales y rama
-     git.Clone(urlRepo, projectElement.name, cloneOptions)
-          .then(function(){
-               console.log("<========= Comprobando repositorio=========>")})
-          .then(function(){
-               console.log("<========= Repositorio listo: "+projectElement.name+" =========>")})
-          .catch(function(){
-               console.log("<========= El repositorio ya esta creado: "+projectElement.name+" ==========>")})
-          .then(function(){
-               git.Repository.open(projectElement.name)
-               .then(function(repo){
-                    return repo.getCurrentBranch().then(function(ref) {
-                         console.log("<========= Estas en la Rama: " + ref.shorthand() + "===========>");
-                }).then(function(){
-                    return repo.getHeadCommit()
-                         .then(function(commit){
-                              return repo.createBranch(mrsForBuild[0].source_branch, commit)
-                         .then(function(){
-                              console.log("<=========  Branch creado  =========>")})
-                         .catch(function(){
-                              console.log("<========= Branch Listo ========>") })
-                          .then(function(){
-                              repo.checkoutBranch(mrsForBuild[0].source_branch, {})
-                         .then(function(){
-                                   console.log("<========= checkout realizado cambiando a la Rama: "+ mrsForBuild[0].source_branch+" ============>")})
+//Elimina el proyecto en el repositorio
+   fse.remove(projectElement.name).then(function(){
+        //Clona el proyecto de la rama que se especifique en cloneOption
+         git.Clone(urlRepo,projectElement.name,cloneOptions).then(function(){
+              //Me devuelve el repositorio que estoy utilizando
+               git.Repository.open(projectElement.name).then(function(resultRepo){
+                    repo = resultRepo
+                    //Me crea el branch dentro de mi repo local
+                    repo.getHeadCommit().then(function(targetCommit){
+                         return repo.createBranch(mrsForBuild[0].source_branch, targetCommit, false)
+                    }).then(function(reference){
+                    //Cambia de un branch a otro
+                         return repo.checkoutBranch(reference, {});
+                    }).then(function () {
+                         return repo.getReferenceCommit(
+                           "refs/remotes/origin/" + mrsForBuild[0].source_branch);
+                    }).then(function (commit) {
+                         git.Reset.reset(repo, commit, 3, {});
+                         //Realiza un fetch
+                   }).catch(function(e){console.log(e)})
+                         return repo.fetchAll({
+                              callbacks: {
+                                credentials: function() {
+                                  return git.Cred.userpassPlaintextNew("jbeltrma@everis.com", "va5Kuge,,,");
+                                },
+                                certificateCheck: function() {
+                                  return 0;
+                                }
+                              }
+                            });
+                    }).then(function(){
+                         //Realiza un pull a la rama source
+                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch);
+                    }).then(function(){
+                         //Realiza un merge a la rama target
+                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].target_branch);
+                    }).then(function(){
+                         //Actualiza el nuevo contenido
+                         return repo.refreshIndex().then(function(index){
+                                index.addByPath(projectElement.name)
+                                index.write();
+                                return index.writeTree();
+                         }).then(function(oidResult){
+                              oid = oidResult
+                              return git.Reference.nameToId(repo, 'HEAD');
+                         }).then(function(resultHead){
+                              head = resultHead
+                         })
                          .catch(function(e){
-                              console.log("Error checkout "+e)})
-                         .then(function(){
-                                      return repo.fetchAll({  callbacks: {                    
-                                        credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),               
-                                   }});
-                                 
-                         })                             
-                              // Now that we're finished fetching, go ahead and merge our local branch
-                              // with the new one
-                              .then(function() {
-                                return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch);
-                              }).then(function(){
-                                   console.log("<========= Pull realizado de la Rama auxiliar ============>");})
-                              .catch(function(e){console.log("Error al realizar el Pull "+e)}) 
-                              .then(function(){
-                                   return repo.fetchAll({callbacks: {                    
-                                     credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),                      
-                                }});
-                               })                         
-                              .then(function(){
-                                   var signature = git.Signature.now("Pedro Susín", "psusinor@everis.com");
-                                   repo.mergeBranches(mrsForBuild[0].target_branch, mrsForBuild[0].source_branch)})
-                              .then(function(){
-                                        console.log("<========= Merge de la Rama Principal a la Rama auxiliar realizado ============>")})
-                              .catch(function(e){console.log("Error al realizar el Merge "+e)})
-                              
-                                   // .then(function(){
-                                   //      return repo.getRemote("origin", projectElement.name)})
-                                   // .then(function(remoteResult){
-                                   //      return remoteResult.push(),
-                                   //      console.log("Push realizado")
-                                   // })
-                              //})
-                         
-                    })
+                              console.log(e)
+                         }).then(function(){
+                            return repo.getCommit(head);
+                         })
+                         .then(function(parent) {
+                              //Me crea un commit 
+                               return repo.createCommit("HEAD", signature, signature,"Merge of branch_target to branch_source", oid, [parent]);
+                         }).then(function(commitId) {
+                               return console.log('New Commit: ', commitId);
+                         }).catch(console.error)
+                    }).then(function(){
+                         //Me realiza el push (Error)
+                         repo.getRemote('origin').then(function(remote){
+                              return remote.push(
+                                   ["refs/remotes/origin"+mrsForBuild[0].source_branch+":"+"refs/remotes/origin"+mrsForBuild[0].source_branch],
+                                   {
+                                        callbacks: { 
+                                             credentials: function() {
+                                                  return git.Cred.userpassPlaintextNew("jbeltrma@everis.com", "va5Kuge,,,");
+                                             }
+                                        }
+                                   }
+                              )
+                         }).catch(console.error)
+                          }) 
+                }).catch(function(e){console.log(e)})
                })
-          })
-               
-     })
-
-}).catch(function(err){
-     console.log("ERROR: "+ err)
-})
 }
 
 
 
-//  function getCLoneRepo(urlRepo,mrsForBuild, projectElement){
-//      //Credencial y Rama Principal
-//           var cloneOptions = {
-//                fetchOpts: {
-//                     callbacks: {                    
-//                          credentials: () => git.Cred.userpassPlaintextNew("psusinor@everis.com", "psusinor2019"),               
-                         
-//                     }
-//                },
-//                checkoutBranch: mrsForBuild[0].target_branch
-               
-//           };
 
-//      //Clonación del repositorio con credenciales y rama
-//      git.Clone(urlRepo, projectElement.name, cloneOptions)
-//                .then(function(repository){
-//                     console.log("Repositorio creado: "+repository)
-//                .catch(function(err){
-//                     console.log("error al clonar" + err)
-//                })
-//        });
-// }
 
-//  function createBranch(mrsForBuild, projectElement){
-//      git.Repository.open(projectElement.name).then(function(repo){
-//          return repo.getCurrentBranch().then(function(branch){
-//               if(branch.shorthand()===mrsForBuild[0].source_branch){
-//                return repo.getHeadCommit().then(function(commit){
-//                     return repo.createBranch(mrsForBuild[0].source_branch, commit).then(function(){
-//                          console.log("Branch creado");
-//                     })
-//                }).catch(function(err){
-//                     console.log("Error al crear el branch")
-//                })
-//                }else{
-//                     console.log("El branch ya esta creado")
-//                }
-//           })
-//           })
-// }
 
-//  function checkBranchSource(projectElement, mrsForBuild){
-//      // var checkoutOpts = {
-//      //      checkoutStrategy: git.Checkout.STRATEGY.FORCE
-//      //    };
-//       git.Repository.open(projectElement.name)
-//      .then(function (reference) {
-//            return reference.checkoutBranch(mrsForBuild[0].source_branch, {}).then(function(){
-//                 console.log("checkout realizado");
-//            }).catch(function(err){
-//                 console.log("Error al realizar el checkout "+ err);
-//            })
-//       });
-// }
 
-//  function getCurrentBranch(projectElement){
-//       git.Repository.open(projectElement.name)
-//           .then(function(repository) {
-//           /* Get the current branch. */
-//           return repository.getCurrentBranch().then(function(ref) {
-//             console.log("Estas en la Rama: " + ref.shorthand());
-//            }).catch(function(err){
-//                 console.log("Error al consultar la rama "+ err)
-//            })
-//        })
-// }
 
-//  function mergeRepo(){
-//       git.Repository.open(projectElement.name)
-//           .then(function(repo){
-//           return repo.mergeBranches().then(function(){
-//                console.log("Merge realizado de la Rama principal a la Rama auxiliar");
-//           }).catch(function(err){
-//                console.log("Error al realizar el Merge "+ err)
-//           })
-//      })
-// }
-
-// // get
-// var fetchOpts = cloneOptions;
-// return repo.fetchAll(fetchOpts)
-// }).then(function(){
-//     return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch)
 
 request(optionsGetProjects, getProjects);
 
