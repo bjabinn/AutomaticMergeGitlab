@@ -1,7 +1,7 @@
 const request = require('request');
 const git = require('nodegit');
 var fse = require("fs-extra");
-var oid, head, parent, repo, signature
+var oid, head, repo, signature, index
 
 
 
@@ -82,27 +82,34 @@ function all(urlRepo, mrsForBuild, projectElement){
        }
    signature = git.Signature.now("jbeltran", "jbeltrma@everis.com")
 
-//Elimina el proyecto en el repositorio
+// // //Elimina el proyecto en el repositorio
    fse.remove(projectElement.name).then(function(){
-        //Clona el proyecto de la rama que se especifique en cloneOption
+// // //         //Clona el proyecto de la rama que se especifique en cloneOption
          git.Clone(urlRepo,projectElement.name,cloneOptions).then(function(){
               //Me devuelve el repositorio que estoy utilizando
-               git.Repository.open(projectElement.name).then(function(resultRepo){
-                    repo = resultRepo
+              git.Repository.open(projectElement.name).then(function(resultRepo){
+                     repo = resultRepo
                     //Me crea el branch dentro de mi repo local
                     repo.getHeadCommit().then(function(targetCommit){
+                         console.log("Me crea un branch, targetcommit: "+targetCommit)
                          return repo.createBranch(mrsForBuild[0].source_branch, targetCommit, false)
-                    }).then(function(reference){
+                    }).then(function(resultReference){
+                         reference = resultReference
+                         console.log(reference)
                     //Cambia de un branch a otro
-                         return repo.checkoutBranch(reference, {});
+                    console.log("Me enlaza la rama con el origen")
+                        return git.Branch.setUpstream(reference, "origin/"+mrsForBuild[0].source_branch)
                     }).then(function () {
+                         return  repo.checkoutBranch(reference, {}).catch(console.error)
+                    }).then(function () {
+                         console.log("Toma referencia del commit")
                          return repo.getReferenceCommit(
                            "refs/remotes/origin/" + mrsForBuild[0].source_branch);
                     }).then(function (commit) {
-                         git.Reset.reset(repo, commit, 3, {});
+                          git.Reset.reset(repo, commit, 0, {});
                          //Realiza un fetch
                    }).catch(function(e){console.log(e)})
-                         return repo.fetchAll({
+                         return repo.fetch('origin',{
                               callbacks: {
                                 credentials: function() {
                                   return git.Cred.userpassPlaintextNew("jbeltrma@everis.com", "va5Kuge,,,");
@@ -113,39 +120,49 @@ function all(urlRepo, mrsForBuild, projectElement){
                               }
                             });
                     }).then(function(){
-                         //Realiza un pull a la rama source
-                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch);
+                        //// Realiza un pull a la rama source
+                         console.log("Realiza un pull")
+                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].source_branch, signature);
                     }).then(function(){
-                         //Realiza un merge a la rama target
-                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].target_branch);
+                        //// Realiza un merge a la rama target
+                         console.log("Realiza un merge a la target")
+                              return repo.mergeBranches(mrsForBuild[0].source_branch, mrsForBuild[0].target_branch, signature);
                     }).then(function(){
-                         //Actualiza el nuevo contenido
-                         return repo.refreshIndex().then(function(index){
-                                index.addByPath(projectElement.name)
-                                index.write();
-                                return index.writeTree();
-                         }).then(function(oidResult){
+                         ////Actualiza el nuevo contenido
+                         console.log("Actualiza el nuevo contenido")
+                         return repo.refreshIndex()
+                    }).then(function(resutlIndex){
+                              index = resutlIndex
+                              return index.addAll(projectElement.name)
+                    }).then(function(){
+                              return index.writeTree();
+                    }).then(function(oidResult){
                               oid = oidResult
                               return git.Reference.nameToId(repo, 'HEAD');
-                         }).then(function(resultHead){
+                    }).then(function(resultHead){
                               head = resultHead
-                         })
-                         .catch(function(e){
+                    }).catch(function(e){
                               console.log(e)
-                         }).then(function(){
-                            return repo.getCommit(head);
-                         })
-                         .then(function(parent) {
-                              //Me crea un commit 
-                               return repo.createCommit("HEAD", signature, signature,"Merge of branch_target to branch_source", oid, [parent]);
-                         }).then(function(commitId) {
-                               return console.log('New Commit: ', commitId);
-                         }).catch(console.error)
                     }).then(function(){
-                         //Me realiza el push (Error)
-                         repo.getRemote('origin').then(function(remote){
+                            return repo.getHeadCommit(head);
+                    }).then(function(rep) {
+                              console.log("Me crea un commit")
+                              console.log(rep)
+                             //// Me crea un commit 
+                               return repo.createCommit("HEAD", signature, signature,"Merge of branch_target to branch_source", oid, [rep]);
+                    }).then(function(commitId) {
+                               return console.log('New Commit: '+ commitId);
+                    }).catch(function(e){
+                         console.log(e)
+                    }).then(function(){
+                         console.log("Me realiza un push")
+                         ////Me realiza el push
+                         repo.getRemote('origin').then(function(resultRemote){
+                              remote = resultRemote
+                              console.log(remote)
+                         }).then(function(){
                               return remote.push(
-                                   ["refs/remotes/origin"+mrsForBuild[0].source_branch+":"+"refs/remotes/origin"+mrsForBuild[0].source_branch],
+                                   ["refs/heads/"+mrsForBuild[0].source_branch+":"+"refs/remotes/origin/"+mrsForBuild[0].source_branch],
                                    {
                                         callbacks: { 
                                              credentials: function() {
@@ -155,13 +172,10 @@ function all(urlRepo, mrsForBuild, projectElement){
                                    }
                               )
                          }).catch(console.error)
-                          }) 
-                }).catch(function(e){console.log(e)})
-               })
+                    }).catch(console.error)
+          }).catch(function(e){console.log("Final: "+e)})
+     })
 }
-
-
-
 
 
 
